@@ -1,0 +1,10 @@
+{
+  "id": "pipe-space-normalizer",
+  "name": "Pipe Space Normalizer",
+  "version": "1.0.0",
+  "minAppVersion": "1.15.0",
+  "description": "Removes extra padding spaces from Markdown tables. Optionally applies on save.",
+  "author": "vitalexbel",
+  "authorUrl": "https://github.com/vitalexbel",
+  "isDesktopOnly": false
+}
