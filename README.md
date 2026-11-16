@@ -40,8 +40,13 @@ After:
 - Escaped pipes `\|`, wikilinks `[[note|alias]]` and inline code are handled
   correctly
 - Code fences (``` and ~~~) are left untouched
-- Optional Apply on save: runs on Ctrl+S and on autosave
-- Cursor position and scroll are preserved in open files
+- Apply on save: formats tables when you press Ctrl+S / Cmd+S
+- Never runs on background autosave — no cursor jumps while typing in
+  Live Preview
+- Compatible with Linter and other plugins: the original save command is
+  always executed, nothing is blocked
+- Cursor position, scroll and undo history are preserved (line-by-line
+  replacement instead of a full document rewrite)
 - Works on desktop and mobile
 - UI follows the Obsidian interface language (English and Russian included)
 
@@ -52,11 +57,15 @@ After:
 | Normalize tables in current file | Normalize all tables in the active file |
 | Normalize tables in all markdown files | Normalize tables across the whole vault |
 
+Both commands can be assigned custom hotkeys in Settings → Hotkeys.
+
 ## Settings
 
 | Setting | Default | Description |
 | --- | --- | --- |
-| Apply on save | off | Normalize tables on every file save (Ctrl+S and autosave) |
+| Apply on save | on | Normalize tables when saving with Ctrl+S / Cmd+S. Background autosave is not affected. |
+
+No hotkey configuration is required: the standard save shortcut works as usual.
 
 ## Installation
 
@@ -86,9 +95,10 @@ The table normalization core is taken from
 [table-autopadding-remover](https://github.com/ar-siddiqui/table-autopadding-remover)
 by Abdul Raheem Siddiqui (MIT License).
 
-This project adds the Apply on save option, a settings tab, safe handling of
-open files (editor-based rewrite with cursor/scroll preservation and
-immediate save), and English/Russian localization.
+This project adds the Apply on save option (a hook on the built-in save
+command, autosave untouched), a settings tab, safe line-by-line rewriting
+of open files with cursor/scroll preservation, and English/Russian
+localization.
 
 Background: [Obsidian forum discussion about table
 auto-padding](https://forum.obsidian.md/t/add-a-configurable-switch-flag-to-disable-auto-padding-of-table-cells/81531).
