@@ -9,25 +9,22 @@ const obsidian = require("obsidian");
 const { Plugin, TFile, MarkdownView, PluginSettingTab, Setting } = obsidian;
 
 const DEFAULT_SETTINGS = {
-  applyOnSave: false,
+  applyOnSave: true,
 };
 
-/* ===== Localization (English default, Russian for ru UI) ===== */
-
+/* ===== Localization ===== */
 const STRINGS = {
   en: {
     cmdCurrentFile: "Normalize tables in current file",
     cmdAllFiles: "Normalize tables in all markdown files",
     applyOnSave: "Apply on save",
-    applyOnSaveDesc:
-      "Normalize tables every time a file is saved (Ctrl+S and autosave).",
+    applyOnSaveDesc: "Normalize tables when you press Ctrl+S (or Cmd+S on Mac). Does not trigger on autosave.",
   },
   ru: {
     cmdCurrentFile: "Нормализовать таблицы в текущем файле",
     cmdAllFiles: "Нормализовать таблицы во всех Markdown-файлах",
     applyOnSave: "Применять при сохранении",
-    applyOnSaveDesc:
-      "Нормализовать таблицы при каждом сохранении файла (Ctrl+S и автосохранение).",
+    applyOnSaveDesc: "Нормализовать таблицы при нажатии Ctrl+S (или Cmd+S на Mac). Не срабатывает при автосохранении.",
   },
 };
 
@@ -35,12 +32,9 @@ function getStrings() {
   let locale = "en";
   try {
     if (typeof obsidian.getLanguage === "function") {
-      locale = obsidian.getLanguage(); // official API, newer Obsidian versions
+      locale = obsidian.getLanguage();
     } else {
-      locale =
-        window.localStorage.getItem("language") ||
-        (window.moment && window.moment.locale()) ||
-        "en";
+      locale = window.localStorage.getItem("language") || (window.moment && window.moment.locale()) || "en";
     }
   } catch (_) {
     locale = "en";
@@ -49,8 +43,7 @@ function getStrings() {
   return STRINGS[lang] || STRINGS.en;
 }
 
-/* ===== Table normalization core (from table-autopadding-remover, MIT) ===== */
-
+/* ===== Table normalization core ===== */
 function isFenceLine(trimmed) {
   return trimmed.startsWith("```") || trimmed.startsWith("~~~");
 }
@@ -80,21 +73,18 @@ function splitByPipes(line) {
       i += 2;
       continue;
     }
-
     if (!inCode && ch === "[" && next === "[") {
       inWikilink = true;
       current += "[[";
       i += 2;
       continue;
     }
-
     if (inWikilink && ch === "]" && next === "]") {
       inWikilink = false;
       current += "]]";
       i += 2;
       continue;
     }
-
     if (!inWikilink && ch === "`") {
       const ticks = countBackticks(line, i);
       current += "`".repeat(ticks);
@@ -108,18 +98,15 @@ function splitByPipes(line) {
       }
       continue;
     }
-
     if (!inCode && !inWikilink && ch === "|") {
       cells.push(current);
       current = "";
       i++;
       continue;
     }
-
     current += ch;
     i++;
   }
-
   cells.push(current);
   return cells;
 }
@@ -186,20 +173,16 @@ function normalizeTables(text) {
       result.push(line);
       continue;
     }
-
     if (inFence) {
       result.push(line);
       continue;
     }
-
     result.push(normalizeTableLine(line));
   }
-
   return result.join("\n");
 }
 
 /* ===== Settings tab ===== */
-
 class PipeSpaceNormalizerSettingTab extends PluginSettingTab {
   constructor(app, plugin) {
     super(app, plugin);
@@ -226,7 +209,6 @@ class PipeSpaceNormalizerSettingTab extends PluginSettingTab {
 }
 
 /* ===== Plugin ===== */
-
 module.exports = class PipeSpaceNormalizer extends Plugin {
   async onload() {
     this.processing = new Set();
@@ -235,27 +217,57 @@ module.exports = class PipeSpaceNormalizer extends Plugin {
 
     const s = getStrings();
 
-    // "Apply on save": fires after the file is written to disk
-    this.registerEvent(
-      this.app.vault.on("modify", (file) => {
-        if (!this.settings.applyOnSave) return;
-        if (!(file instanceof TFile) || file.extension !== "md") return;
-        if (this.processing.has(file.path)) return;
-        this.normalizeFile(file).catch((err) =>
-          console.error("PipeSpaceNormalizer:", err)
-        );
-      })
-    );
+    // Перехват команды Ctrl+S (editor:save-file)
+    const saveCmd = this.app.commands?.commands?.["editor:save-file"];
+    if (saveCmd) {
+      const originalCallback = saveCmd.callback;
+      const originalCheckCallback = saveCmd.checkCallback;
 
+      saveCmd.callback = () => {
+        if (this.settings.applyOnSave) {
+          const file = this.app.workspace.getActiveFile();
+          if (file) {
+            const view = this.findMarkdownView(file);
+            if (view && view.editor) {
+              this.formatEditor(view.editor);
+            }
+          }
+        }
+        if (originalCallback) originalCallback();
+      };
+
+      if (originalCheckCallback) {
+        saveCmd.checkCallback = (checking) => {
+          if (checking) return originalCheckCallback(true);
+          if (this.settings.applyOnSave) {
+            const file = this.app.workspace.getActiveFile();
+            if (file) {
+              const view = this.findMarkdownView(file);
+              if (view && view.editor) {
+                this.formatEditor(view.editor);
+              }
+            }
+          }
+          return originalCheckCallback(false);
+        };
+      }
+
+      // Автоматическое восстановление при выгрузке плагина
+      this.register(() => {
+        saveCmd.callback = originalCallback;
+        if (originalCheckCallback) {
+          saveCmd.checkCallback = originalCheckCallback;
+        }
+      });
+    }
+
+    // Команды для ручного запуска
     this.addCommand({
       id: "normalize-current-file",
       name: s.cmdCurrentFile,
-      checkCallback: (checking) => {
+      callback: () => {
         const file = this.app.workspace.getActiveFile();
-        if (!file) return false;
-        if (checking) return true;
-        this.normalizeFile(file);
-        return true;
+        if (file) this.normalizeFile(file);
       },
     });
 
@@ -279,57 +291,79 @@ module.exports = class PipeSpaceNormalizer extends Plugin {
     this.app.workspace.iterateAllLeaves((leaf) => {
       if (found) return;
       const view = leaf.view;
-      if (
-        view instanceof MarkdownView &&
-        view.file &&
-        view.file.path === file.path
-      ) {
+      if (view instanceof MarkdownView && view.file && view.file.path === file.path) {
         found = view;
       }
     });
     return found;
   }
 
+  // Форматирование открытого файла в редакторе (без сохранения)
+  formatEditor(editor) {
+    const selections = editor.listSelections();
+    const scroll = editor.getScrollInfo();
+    let hasChanges = false;
+
+    const lineCount = editor.lineCount();
+    for (let i = 0; i < lineCount; i++) {
+      const oldLine = editor.getLine(i);
+      const newLine = normalizeTableLine(oldLine);
+      
+      if (oldLine !== newLine) {
+        editor.setLine(i, newLine);
+        hasChanges = true;
+      }
+    }
+
+    if (hasChanges) {
+      // Восстановление курсора с учётом изменения длины строк
+      const newSelections = selections.map((sel) => {
+        const clamp = (pos) => ({
+          line: pos.line,
+          ch: Math.max(0, Math.min(pos.ch, editor.getLine(pos.line).length)),
+        });
+        return { anchor: clamp(sel.anchor), head: clamp(sel.head) };
+      });
+
+      editor.setSelections(newSelections);
+      editor.scrollTo(scroll.left, scroll.top);
+    }
+  }
+
+  // Полная нормализация файла (с сохранением)
   async normalizeFile(file) {
     if (!(file instanceof TFile)) return;
     if (file.extension !== "md") return;
     if (this.processing.has(file.path)) return;
 
     const view = this.findMarkdownView(file);
-    const text = view ? view.editor.getValue() : await this.app.vault.read(file);
-    const normalized = normalizeTables(text);
-    if (normalized === text) return;
-
-    this.processing.add(file.path);
-    try {
-      if (view) {
-        // Open file: rewrite via editor so a pending autosave cannot
-        // overwrite the result; preserve cursor and scroll
-        const editor = view.editor;
-        const cursor = editor.getCursor();
-        const scroll = editor.getScrollInfo();
-
-        editor.setValue(normalized);
-
-        const line = Math.min(cursor.line, editor.lineCount() - 1);
-        const ch = Math.min(cursor.ch, editor.getLine(line).length);
-        editor.setCursor({ line, ch });
-        editor.scrollTo(scroll.left, scroll.top);
-
-        await view.save(); // flush to disk immediately
-      } else {
-        await this.app.vault.modify(file, normalized);
+    
+    if (view && view.editor) {
+      this.formatEditor(view.editor);
+      this.processing.add(file.path);
+      try {
+        await view.save();
+      } finally {
+        this.processing.delete(file.path);
       }
-    } finally {
-      this.processing.delete(file.path);
+    } else {
+      // Файл не открыт в редакторе
+      const text = await this.app.vault.read(file);
+      const normalized = normalizeTables(text);
+      if (normalized !== text) {
+        this.processing.add(file.path);
+        try {
+          await this.app.vault.modify(file, normalized);
+        } finally {
+          this.processing.delete(file.path);
+        }
+      }
     }
   }
 
   async normalizeAllFiles() {
     const files = this.app.vault.getMarkdownFiles();
     for (const file of files) {
-      // Sequential to avoid heavy vault churn
-      // eslint-disable-next-line no-await-in-loop
       await this.normalizeFile(file);
     }
   }
